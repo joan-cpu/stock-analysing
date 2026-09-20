@@ -1,0 +1,19 @@
+# Core dependencies for the AI Swing Trading System
+# Pin ranges keep the build reproducible while allowing patch updates.
+
+# --- Layer 1: Data ingestion & technical analysis ---
+yfinance>=0.2.40
+pandas>=2.1.0
+numpy>=1.26.0
+
+# --- Layer 2: LLM analyst agent ---
+anthropic>=0.40.0
+
+# --- Layer 3 / 4: Validation, config & broker I/O ---
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# --- Tooling / tests ---
+pytest>=8.0.0
