@@ -35,3 +35,6 @@ Thumbs.db
 *.log
 logs/
 data/*.csv
+
+# --- Claude Code app / session settings ------------------------------------
+.claude/

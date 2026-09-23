@@ -29,6 +29,21 @@ logger = logging.getLogger(__name__)
 # yfinance is imported lazily inside the fetch so that unit tests and the risk
 # layer can import this module without a network-capable environment.
 
+# Yahoo Finance suffixes for Indian exchanges.
+_YF_EXCHANGE_SUFFIX = {"NSE": ".NS", "BSE": ".BO"}
+
+
+def to_yfinance_ticker(symbol: str, exchange: str = "NSE") -> str:
+    """Map a plain Indian symbol to a Yahoo Finance ticker.
+
+    ``("RELIANCE", "NSE") -> "RELIANCE.NS"``. If the symbol already carries a
+    suffix (contains a dot), it is returned unchanged so US tickers still work.
+    """
+    sym = symbol.strip().upper()
+    if "." in sym:
+        return sym
+    return f"{sym}{_YF_EXCHANGE_SUFFIX.get(exchange.strip().upper(), '.NS')}"
+
 
 class Candle(BaseModel):
     """A single OHLCV candle."""
@@ -192,4 +207,10 @@ def fetch_market_snapshot(
     return snapshot
 
 
-__all__ = ["Candle", "MarketSnapshot", "DataFetchError", "fetch_market_snapshot"]
+__all__ = [
+    "Candle",
+    "MarketSnapshot",
+    "DataFetchError",
+    "fetch_market_snapshot",
+    "to_yfinance_ticker",
+]

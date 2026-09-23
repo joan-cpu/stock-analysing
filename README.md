@@ -1,13 +1,14 @@
-# AI Swing Trading System
+# AI Swing Trading System (India / Dhan)
 
 A modular, **safety-first** scaffold for an autonomous multi-agent swing-trading
-pipeline. It separates concerns into four isolated layers, with a hardcoded risk
-interceptor sitting between the LLM's suggestion and any order that reaches a
-broker.
+pipeline for **Indian equities (NSE/BSE)**. It separates concerns into four
+isolated layers, with a hardcoded risk interceptor sitting between the LLM's
+suggestion and any order that reaches the broker.
 
-> ⚠️ **Not financial advice. Educational scaffold only.** It ships defaulting to
-> **dry-run** and, even when "live", targets **Alpaca paper trading only**. Do not
-> point it at a live brokerage endpoint or risk real capital.
+> ⚠️ **Not financial advice. Educational scaffold only.** It defaults to
+> **dry-run**, and when it does send orders it targets the **Dhan sandbox**
+> (mock money) unless you deliberately switch to live. Automated trading can
+> lose money quickly.
 
 ---
 
@@ -15,130 +16,124 @@ broker.
 
 ```
 Ingest (L1) ─▶ Analyze (L2) ─▶ Risk Intercept / Validate (L3) ─▶ Execute (L4)
- yfinance       Claude LLM        hardcoded Python (no AI)          Alpaca paper
+ yfinance       Claude LLM        hardcoded Python (no AI)          Dhan (sandbox)
+ real prices                      2% cap · 3% SL · 6% TP            mock by default
 ```
 
 | Layer | File | Role | AI? |
 |-------|------|------|-----|
-| **1. Ingestion** | `src/ingestion/data_fetcher.py` | Pull price action (4h candles) + compute RSI(14), SMA50, SMA200 | No |
+| **1. Ingestion** | `src/ingestion/data_fetcher.py` | Real prices (Yahoo Finance, `.NS`/`.BO`) + RSI, SMA50, SMA200 | No |
 | **2. Analyst** | `src/analysis/analyst_agent.py` | Claude reads the metrics, returns a strict JSON trade signal | **Yes** |
 | **3. Risk interceptor** | `src/risk/guardrails.py` | Enforce 2% max position, append 3% stop / 6% target, or kill the trade | **No — deterministic** |
-| **4. Executor** | `src/execution/order_executor.py` | Build the broker payload; dry-run by default | No |
+| **4. Executor** | `src/execution/order_executor.py` | Build the Dhan payload; dry-run by default, sandbox before live | No |
+
+Supporting modules: `src/execution/dhan_client.py` (Dhan REST calls) and
+`src/execution/instruments.py` (resolves a symbol to Dhan's `securityId`).
 
 **The safety guarantee:** Layer 3 is 100% hardcoded Python. It makes no model
-calls and takes no AI-driven decisions. Every order is capped at 2% of equity and
-carries a mandatory stop-loss/take-profit, or it is rejected with a hard error.
+calls. Every order is capped at 2% of equity and carries a mandatory
+stop-loss/take-profit, or it is rejected with a hard error.
 
-### Directory layout
+### Why Dhan sandbox?
 
-```
-stock-analysing/
-├── config/
-│   ├── settings.py           # env config + immutable-rules loader
-│   └── trading_rules.json    # hardcoded, immutable risk parameters
-├── src/
-│   ├── ingestion/data_fetcher.py    # Layer 1
-│   ├── analysis/analyst_agent.py    # Layer 2
-│   ├── risk/guardrails.py           # Layer 3  (critical safety)
-│   └── execution/order_executor.py  # Layer 4
-├── tests/test_guardrails.py  # proves the safety controls hold
-├── main.py                   # orchestrator
-├── requirements.txt
-└── .env.example
-```
+Dhan is one of the few Indian brokers with a **mock API** ([developer.dhanhq.co](https://developer.dhanhq.co)):
+you get ₹10,00,000 of virtual capital (resets daily) and orders are simulated,
+never routed to the exchange. That lets the **whole pipeline run end-to-end —
+including the real order API call — with zero money at risk.** Note the sandbox
+fills every order at ₹100 and has no live quotes, so it validates *plumbing*, not
+strategy P&L (that's why prices/analysis still come from Yahoo Finance).
 
 ---
 
 ## Setup
 
 ```bash
-# 1. Create and activate a virtual environment
 python -m venv .venv
-# Windows:  .venv\Scripts\activate
-# macOS/Linux:  source .venv/bin/activate
-
-# 2. Install dependencies
+# Windows:  .venv\Scripts\activate   |   macOS/Linux:  source .venv/bin/activate
 pip install -r requirements.txt
-
-# 3. Configure environment
-cp .env.example .env      # Windows: copy .env.example .env
-# then edit .env
+cp .env.example .env      # Windows: copy .env.example .env   — then edit
 ```
 
 ### `.env` variables
 
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
-| `ANTHROPIC_API_KEY` | for Layer 2 | — | Claude API key ([console](https://console.anthropic.com/)) |
-| `ANTHROPIC_MODEL` | no | `claude-sonnet-5` | Analyst model (see note below) |
-| `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` | only for `--live` | — | **Paper** trading keys |
-| `ALPACA_BASE_URL` | no | `https://paper-api.alpaca.markets` | Paper endpoint (live endpoints are refused) |
-| `DRY_RUN` | no | `true` | Print payloads instead of sending |
-| `SIMULATED_TOTAL_EQUITY` | no | `100000` | Equity the risk layer sizes against when no broker keys are set |
-| `SIMULATED_CASH_BALANCE` | no | `100000` | Cash used for the funding check in simulation |
-
-> **Model note:** the original spec requested *Claude 3.5 Sonnet*, which is now
-> deprecated. This scaffold defaults to **`claude-sonnet-5`** (its current, cheaper,
-> more capable successor). Override with `ANTHROPIC_MODEL` if you need a specific
-> model.
+| `ANTHROPIC_API_KEY` | for Layer 2 | — | Claude API key |
+| `ANTHROPIC_MODEL` | no | `claude-sonnet-5` | Analyst model |
+| `DHAN_CLIENT_ID` / `DHAN_ACCESS_TOKEN` | to submit orders | — | Dhan credentials (sandbox token works) |
+| `DHAN_ENV` | no | `sandbox` | `sandbox` (mock) or `live` (real money) |
+| `DHAN_ENABLE_LIVE_TRADING` | no | `false` | Second lock; must be `true` for a live order |
+| `DEFAULT_EXCHANGE` | no | `NSE` | `NSE` or `BSE` |
+| `PRODUCT_TYPE` | no | `CNC` | `CNC` (delivery/swing), `INTRADAY`, `BO`, ... |
+| `DRY_RUN` | no | `true` | Print the payload instead of sending |
+| `SIMULATED_TOTAL_EQUITY` / `SIMULATED_CASH_BALANCE` | no | `1000000` | Equity used when no Dhan creds are set |
 
 ---
 
-## Running a safe simulation
+## Running
 
-**Dry-run (default — no orders sent, no real money, prints the exact payload):**
+**Dry-run (default — no order sent, prints payload + risk plan):**
 
 ```bash
-python main.py --ticker AAPL
+python main.py --symbol RELIANCE
 ```
 
-You can run the ingestion + risk layers with **no Alpaca account at all** — the
-risk layer falls back to the `SIMULATED_*` equity values. Only Layer 2 needs an
+Works with **no Dhan account at all** — analysis uses real Yahoo Finance prices
+and the risk layer falls back to the `SIMULATED_*` equity. Only Layer 2 needs an
 `ANTHROPIC_API_KEY`.
 
-**Propose a size and watch the risk layer downsize it to the 2% cap:**
+**Propose a size and watch the risk layer cap it to 2%:**
 
 ```bash
-python main.py --ticker MSFT --qty 10000
+python main.py --symbol TCS --qty 100000
 ```
 
-**Paper trading (still no real money — hits Alpaca's paper API):**
+**Submit to the Dhan sandbox (mock money, real API round-trip):**
 
 ```bash
-# requires ALPACA_API_KEY / ALPACA_SECRET_KEY for a PAPER account
-python main.py --ticker TSLA --live
+# needs DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN (sandbox token) and DHAN_ENV=sandbox
+python main.py --symbol INFY --submit
 ```
 
-The executor **refuses to submit** if `ALPACA_BASE_URL` is not a paper endpoint or
-if credentials are missing — there is no code path to a live brokerage here.
+**Going live (real money) — deliberately gated:** set `DHAN_ENV=live` **and**
+`DHAN_ENABLE_LIVE_TRADING=true`, then `--submit`. If either is missing the
+executor refuses. Test everything in sandbox first.
 
 ---
 
 ## Tests
 
-The guardrails are covered by unit tests that require no network and no LLM:
-
 ```bash
 pytest -q
 ```
 
-They assert that positions never exceed the 2% cap, oversized proposals are
-downsized, stop-loss/take-profit are appended correctly for both long and short,
-HOLD produces no order, and unsafe inputs raise a hard `RiskViolation`.
+No network, no LLM. They assert positions never exceed the 2% cap, oversized
+proposals are downsized, stop-loss/take-profit are appended correctly, HOLD
+produces no order, and unsafe inputs raise a hard `RiskViolation`.
 
 ---
 
+## Notes specific to the Indian market
+
+- **CNC (delivery) can't be shorted overnight**, so `allow_short_selling` is
+  `false` by default — a `SELL` signal is rejected by the risk layer. To trade
+  shorts, use an intraday product and enable shorting in `trading_rules.json`.
+- **SL/TP for CNC** are provided as a *risk plan* (reference/stop/target prices)
+  printed with every order. Placing them automatically as GTT/exit orders is a
+  documented extension point. For the `BO` product they attach to the order
+  directly (`boStopLossValue` / `boProfitValue`), but `BO` is intraday only.
+- **Dhan needs a `securityId`**, resolved automatically from Dhan's public scrip
+  master (cached under `data/`, refreshed daily).
+
 ## Safe-deployment playbook
 
-1. **Stay in dry-run** until you have read every logged payload and agree with it.
-2. **Paper only.** Keep `ALPACA_BASE_URL` on the paper endpoint. The executor
-   blocks non-paper URLs by design — do not remove that check.
-3. **Treat `trading_rules.json` as immutable.** Never let the model or any runtime
-   process rewrite it. Change limits only via reviewed commits.
-4. **The risk layer is the boundary.** Keep Layer 3 free of any LLM/AI calls.
-   All position sizing and stops must remain deterministic Python.
-5. **Add monitoring & kill-switches** before considering anything beyond paper:
-   position reconciliation, daily loss limits, and a manual halt. These are *not*
-   included here.
-6. **Understand the risk.** Automated trading can lose money quickly. This is a
-   learning scaffold, not a production trading system, and comes with no warranty.
+1. **Stay in dry-run** until you've read the payloads and agree with them.
+2. **Sandbox next.** Submit to Dhan sandbox and confirm the round-trip before
+   ever touching live.
+3. **Treat `trading_rules.json` as immutable.** Change limits only via reviewed
+   commits; never let the model rewrite it.
+4. **The risk layer is the boundary.** Keep Layer 3 free of any AI calls.
+5. **Add monitoring & kill-switches** before live: position reconciliation,
+   daily loss limits, a manual halt. These are *not* included here.
+6. **Understand the risk.** This is a learning scaffold, not a production trading
+   system, and comes with no warranty.

@@ -74,36 +74,38 @@ class ValidatedOrder(BaseModel):
 
 
 def get_account_state(settings: Optional[Settings] = None) -> AccountState:
-    """Fetch current account metrics.
+    """Fetch current account metrics (INR).
 
-    Uses the Alpaca account endpoint when paper keys are configured; otherwise
-    falls back to the simulated equity/cash from ``Settings``. Network failures
-    degrade gracefully to simulation so the pipeline stays runnable.
+    Uses the Dhan ``/fundlimit`` endpoint when credentials are configured
+    (sandbox or live per ``DHAN_ENV``); otherwise falls back to the simulated
+    equity/cash from ``Settings``. Network failures degrade gracefully to
+    simulation so the pipeline stays runnable.
     """
     settings = settings or get_settings()
 
-    if settings.has_alpaca:
+    if settings.has_dhan:
         try:
             import requests
 
             resp = requests.get(
-                f"{settings.alpaca_base_url.rstrip('/')}/v2/account",
-                headers={
-                    "APCA-API-KEY-ID": settings.alpaca_api_key,
-                    "APCA-API-SECRET-KEY": settings.alpaca_secret_key,
-                },
-                timeout=10,
+                f"{settings.base_url.rstrip('/')}/fundlimit",
+                headers=settings.auth_headers(),
+                timeout=15,
             )
             resp.raise_for_status()
             data = resp.json()
+            # Dhan spells the field "availabelBalance" (their typo, kept as-is).
+            cash = float(data.get("availabelBalance", data.get("availableBalance", 0)) or 0)
+            utilized = float(data.get("utilizedAmount", 0) or 0)
+            equity = cash + utilized  # tradable capital ~= free cash + deployed
             return AccountState(
-                total_equity=float(data.get("equity", data.get("portfolio_value", 0))),
-                cash_balance=float(data.get("cash", 0)),
+                total_equity=equity if equity > 0 else cash,
+                cash_balance=cash,
                 open_positions=0,
-                source="alpaca",
+                source=f"dhan-{settings.dhan_env}",
             )
         except Exception as exc:  # noqa: BLE001 - fall back to simulation
-            logger.warning("Alpaca account fetch failed (%s); using simulation.", exc)
+            logger.warning("Dhan fund fetch failed (%s); using simulation.", exc)
 
     return AccountState(
         total_equity=settings.simulated_total_equity,
@@ -188,10 +190,10 @@ class RiskInterceptor:
             was_downsized = quantity < proposed_quantity
 
         notional = round(quantity * current_price, 2)
-        if notional < self.rules.min_trade_notional_usd:
+        if notional < self.rules.min_trade_notional:
             raise RiskViolation(
-                f"Trade notional ${notional:,.2f} below minimum "
-                f"${self.rules.min_trade_notional_usd:,.2f}."
+                f"Trade notional Rs {notional:,.2f} below minimum "
+                f"Rs {self.rules.min_trade_notional:,.2f}."
             )
 
         # --- Mandatory stop-loss / take-profit ---
@@ -217,7 +219,7 @@ class RiskInterceptor:
             ),
         )
         logger.info(
-            "Validated %s %s x%d @ %.2f (notional $%.2f = %.2f%% equity) SL=%.2f TP=%.2f%s",
+            "Validated %s %s x%d @ %.2f (notional Rs %.2f = %.2f%% equity) SL=%.2f TP=%.2f%s",
             order.side, order.ticker, order.quantity, order.reference_price,
             order.notional, order.risk_pct_of_equity, order.stop_loss_price,
             order.take_profit_price, " [DOWNSIZED]" if was_downsized else "",

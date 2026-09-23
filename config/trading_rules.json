@@ -1,10 +1,10 @@
 {
-  "_comment": "IMMUTABLE risk parameters. Layer 3 (guardrails.py) reads these values but the enforcement LOGIC is hardcoded in Python. Do NOT let any LLM or runtime process rewrite this file. Values are fractions of total account equity unless noted.",
+  "_comment": "IMMUTABLE risk parameters (Indian market / Dhan). Layer 3 (guardrails.py) reads these values but the enforcement LOGIC is hardcoded in Python. Do NOT let any LLM or runtime process rewrite this file. Amounts are in INR. allow_short_selling is false because CNC (delivery) swing trades cannot be shorted overnight in the Indian cash market; enable it only with an intraday product.",
   "max_position_pct": 0.02,
   "stop_loss_pct": 0.03,
   "take_profit_pct": 0.06,
   "max_open_positions": 5,
-  "min_trade_notional_usd": 1.0,
+  "min_trade_notional": 1.0,
   "allowed_actions": ["BUY", "SELL", "HOLD"],
-  "allow_short_selling": true
+  "allow_short_selling": false
 }

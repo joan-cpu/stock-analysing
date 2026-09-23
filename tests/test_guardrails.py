@@ -25,7 +25,7 @@ RULES = TradingRules(
     stop_loss_pct=0.03,
     take_profit_pct=0.06,
     max_open_positions=5,
-    min_trade_notional_usd=1.0,
+    min_trade_notional=1.0,
     allowed_actions=("BUY", "SELL", "HOLD"),
     allow_short_selling=True,
 )
